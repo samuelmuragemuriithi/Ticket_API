@@ -82,7 +82,7 @@ app.get('/', (req, res) => {
             </tbody>
           </table>
           <footer>
-            <p>Ticket API - 2024 | Developed with ❤️</p>
+            <p>Ticket API - 2025 | Developed with ❤️</p>
           </footer>
         </div>
       </body>
