@@ -187,8 +187,13 @@ async function autoAssignTickets() {
 
   // Find out which agents are available
   const availableAgents = agents.filter(agent => {
-      return agent.shift_start.seconds <= currentTime && agent.shift_end.seconds > currentTime && agent.status !== 'Offline';
-  });
+    if (!agent.shift_start || !agent.shift_end) {
+        console.warn("Skipping agent due to missing shift_start or shift_end:", agent);
+        return false;
+    }
+    return agent.shift_start.seconds <= currentTime && agent.shift_end.seconds > currentTime && agent.status !== 'Offline';
+});
+
 
   // Aggregate existing ticket count for each agent
   const agentTicketCount = {};
