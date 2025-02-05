@@ -2,6 +2,8 @@
 const express = require('express');
 const { initializeApp } = require('firebase/app');
 const { getFirestore, doc, setDoc, collection,getDocs } = require('firebase/firestore');
+const { Timestamp } = require('firebase/firestore');
+
 // const { getFirestore, collection, getDocs } = require('firebase/firestore');
 require('dotenv').config();
 
@@ -177,79 +179,94 @@ app.get('/agents', async (req, res) => {
 
 // Function to auto-assign tickets based on agent availability and existing ticket load
 async function autoAssignTickets() {
-    const agents = await fetchAgentDataFromFirestore();
-    const tickets = await fetchTicketsFromFirestore();
-  
-    const currentTime = Math.floor(Date.now() / 1000);  // Current timestamp in seconds
-    const ticketQueue = [];
-  
-    // Find out which agents are available
-    const availableAgents = agents.filter(agent => {
+  const agents = await fetchAgentDataFromFirestore();
+  const tickets = await fetchTicketsFromFirestore();
+
+  const currentTime = Math.floor(Date.now() / 1000);  // Current timestamp in seconds
+  const ticketQueue = [];
+
+  // Find out which agents are available
+  const availableAgents = agents.filter(agent => {
       return agent.shift_start.seconds <= currentTime && agent.shift_end.seconds > currentTime && agent.status !== 'Offline';
-    });
-  
-    // Aggregate existing ticket count for each agent
-    const agentTicketCount = {};
-    tickets.forEach(ticket => {
+  });
+
+  // Aggregate existing ticket count for each agent
+  const agentTicketCount = {};
+  tickets.forEach(ticket => {
       const assignedAgent = ticket.assigned_agent || 'Auto Assign'; 
-      if (agentTicketCount[assignedAgent]) {
-        agentTicketCount[assignedAgent]++;
-      } else {
-        agentTicketCount[assignedAgent] = 1;
-      }
-    });
-  
-    // Loop through tickets to assign them
-    tickets.forEach(ticket => {
+      agentTicketCount[assignedAgent] = (agentTicketCount[assignedAgent] || 0) + 1;
+  });
+
+  // Loop through tickets to assign them
+  tickets.forEach(ticket => {
       let assignedAgent = ticket.assigned_agent;
-  
+
       if (assignedAgent === 'Auto Assign') {
-        if (availableAgents.length > 0) {
-          availableAgents.sort((a, b) => {
-            return (agentTicketCount[a.name] || 0) - (agentTicketCount[b.name] || 0);
-          });
-  
-          assignedAgent = availableAgents[0].name;
-  
-          agentTicketCount[assignedAgent] = (agentTicketCount[assignedAgent] || 0) + 1;
-        } else {
-          assignedAgent = 'Auto Assign';
-        }
+          if (availableAgents.length > 0) {
+              availableAgents.sort((a, b) => {
+                  return (agentTicketCount[a.name] || 0) - (agentTicketCount[b.name] || 0);
+              });
+
+              assignedAgent = availableAgents[0].name;
+              agentTicketCount[assignedAgent] = (agentTicketCount[assignedAgent] || 0) + 1;
+          } else {
+              assignedAgent = 'Auto Assign';
+          }
       }
-  
-      // Queue the ticket with the assigned agent and status
+
+      // Prepare ticket data
       const ticketData = {
-        title: ticket.title,
-        due_date: new Date(ticket.due_date.seconds * 1000).toLocaleString(),  // Convert from seconds to readable date
-        assigned_agent: assignedAgent,
-        status: ticket.status || 'Pending'
+          title: ticket.title,
+          due_date: ticket.due_date ? new Date(ticket.due_date) : new Date(), // Convert due_date to Date
+          assigned_agent: assignedAgent,
+          status: ticket.status || 'Pending',
+          isDone: false // Ensure consistent spelling of isDone
       };
-  
+
       ticketQueue.push(ticketData);
-  
-      // Save ticket to Firestore in the new collection
       saveAssignedTicketToFirestore(ticketData);
-    });
-  
-    return ticketQueue;
-  }
-  
-  // Function to save the ticket data to Firestore in a new collection
+  });
+
+  return ticketQueue;
+}
+
+
+
   async function saveAssignedTicketToFirestore(ticketData) {
-    try {
-      const ticketRef = doc(collection(db, 'AutoAssignedTickets')); // Reference to the new collection
-      await setDoc(ticketRef, {
-        title: ticketData.title,
-        due_date: ticketData.due_date,
-        assigned_agent: ticketData.assigned_agent,
-        status: ticketData.status,
-        assigned_at: new Date().toISOString()  // Timestamp when ticket is assigned
-      });
-      console.log(`Ticket saved to AutoAssignedTickets collection: ${ticketData.title}`);
-    } catch (error) {
-      console.error("Error saving ticket to Firestore:", error);
-    }
+      try {
+          const ticketRef = doc(collection(db, 'AutoAssignedTickets')); // Reference to the new collection
+          
+          await setDoc(ticketRef, {
+              title: ticketData.title,
+              due_date: Timestamp.fromDate(new Date(ticketData.due_date)), // Convert due_date to Firestore Timestamp
+              assigned_agent: ticketData.assigned_agent,
+              status: ticketData.status,
+              assigned_at: Timestamp.fromDate(new Date()), // Store assigned_at as a Firestore Timestamp
+              isDone: false // Ensure isDone is always false
+          });
+
+          console.log(`Ticket saved to AutoAssignedTickets collection: ${ticketData.title}`);
+      } catch (error) {
+          console.error("Error saving ticket to Firestore:", error);
+      }
   }
+
+  // // Function to save the ticket data to Firestore in a new collection
+  // async function saveAssignedTicketToFirestore(ticketData) {
+  //   try {
+  //     const ticketRef = doc(collection(db, 'AutoAssignedTickets')); // Reference to the new collection
+  //     await setDoc(ticketRef, {
+  //       title: ticketData.title,
+  //       due_date: ticketData.due_date,
+  //       assigned_agent: ticketData.assigned_agent,
+  //       status: ticketData.status,
+  //       assigned_at: new Date().toISOString()  // Timestamp when ticket is assigned
+  //     });
+  //     console.log(`Ticket saved to AutoAssignedTickets collection: ${ticketData.title}`);
+  //   } catch (error) {
+  //     console.error("Error saving ticket to Firestore:", error);
+  //   }
+  // }
   
   // API route to auto-assign tickets
   app.post('/tickets/auto-assign', async (req, res) => {
