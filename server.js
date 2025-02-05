@@ -111,13 +111,24 @@ app.get('/tickets', async (req, res) => {
     console.log("Fetching data from Firestore...");
     console.log("Collection name: TicketData");
 
+    // Fetch tickets from Firestore
     const tickets = await fetchTicketsFromFirestore();
-    res.json({ success: true, data: tickets });
+    
+    // Convert Firestore Timestamp to Date (ISO string format)
+    const formattedTickets = tickets.map(ticket => {
+      return {
+        ...ticket,
+        due_date: ticket.due_date ? ticket.due_date.toDate().toISOString() : null // Convert to ISO string
+      };
+    });
+
+    res.json({ success: true, data: formattedTickets });
   } catch (error) {
     console.error("Error fetching tickets:", error);
     res.status(500).json({ success: false, message: "Failed to fetch tickets from Firestore" });
   }
 });
+
 
 // Function to aggregate tickets by assigned agent
 async function aggregateTicketsByAgent() {
